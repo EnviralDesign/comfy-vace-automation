@@ -1,2 +1,1 @@
-av
-numpy
+# No extra pip dependencies are required for the core nodes in this repo.

@@ -1,73 +1,79 @@
 # comfy-vace-automation
 
-Custom nodes for ComfyUI workflows that automate multi-clip VACE runs.
+Custom nodes for a leaner VACE clip-joining workflow in ComfyUI.
 
-This repo contains a small set of workflow-control and manifest-planning nodes
-used to make repeated VACE transition runs more deterministic and easier to
-chain together.
+This repo replaces the old manifest-oriented automation pack with a smaller
+set of nodes built around the current in-memory workflow:
+
+- collect multiple clips
+- iterate joins in-memory
+- prepare a two-clip VACE seam
+- apply lightweight seam blending
+- expose loop iteration state for seed math
+
+The design goal is to keep the workflow mostly native, with custom nodes only
+where ComfyUI still needs a little orchestration help.
 
 ## Included nodes
 
-- `WanVACEBatchContextAuto`
-- `VACEPairLoopStart`
-- `VACEPairLoopEnd`
-- `VACEManifestLoopStart`
-- `VACEManifestLoopEnd`
-- `VACEManifestLoadOrderedClips`
-- `VACEReadyOutputPath`
+- `VACE Clip Collector`
+- `VACE Clip Loop Start`
+- `VACE Clip Loop End`
+- `VACE Seed Int`
+- `VACE Join Prep`
+- `VACE Crossfade Transition`
+- `VACE Clip List (Up To 3)`
 
-These nodes appear under the `video/VACE` category in ComfyUI, except
-`VACEManifestLoadOrderedClips`, which appears under `video/utility`.
+`VACE Clip List (Up To 3)` is retained as a small prototype/helper node. The
+preferred front-end for real use is `VACE Clip Collector`.
 
-## What it does
+## What this pack does
 
-- Creates stable per-run work directories and prefixes for VACE output clips
-- Supports looping over adjacent input-video pairs inside a single prompt run
-- Builds a manifest that declares expected clip paths up front
-- Loads generated clips back in manifest order instead of relying on folder scans
-- Releases a final output path only when the workflow has produced a ready signal
+- Collects multiple `VIDEO` inputs and derives `IMAGE` clip batches plus shared FPS
+- Loops across an ordered in-memory clip list without saving intermediate videos
+- Carries the accumulated joined clip forward between iterations
+- Prepares native VACE control frames and masks for a single seam
+- Provides a standalone seed `INT` node with native Comfy seed-widget behavior
+
+## What this pack does not do
+
+- It does not bundle `WanVideoNAG`
+- It does not bundle `ColorMatch`
+- It does not bundle folder-manifest planning from the old workflow
+
+If your workflow uses `WanVideoNAG` or `ColorMatch`, those still come from
+external node packs such as KJNodes.
 
 ## Installation
 
 Clone or copy this repo into your ComfyUI `custom_nodes` directory:
 
 ```text
-ComfyUI/custom_nodes/comfyui-vace-automation
-```
-
-Install the Python dependency:
-
-```bash
-pip install -r requirements.txt
+ComfyUI/custom_nodes/comfy-vace-automation
 ```
 
 Then restart ComfyUI.
 
 ## Dependencies
 
-- ComfyUI
-- `av`
-- `numpy`
+No extra pip packages are required beyond the normal ComfyUI runtime for the
+core nodes in this repo.
 
 Notes:
 
 - `torch` is expected to come from the ComfyUI environment.
-- `folder_paths`, `nodes`, and `comfy_execution` are ComfyUI internals and are
-  not standalone pip dependencies.
-- `VACEManifestLoadOrderedClips` can accept an optional `VHS_BatchManager`
-  input if VideoHelperSuite is present, but the node does not require VHS for
-  its basic non-batched path.
+- The nodes use ComfyUI internals such as `nodes`, `comfy_execution`,
+  and `comfy_api.latest`.
+- Example workflows may still rely on external packs for quality extras such as
+  `WanVideoNAG` and `ColorMatch`.
 
 ## Repo layout
 
 - [`__init__.py`](C:/repos/comfy-vace-automation/__init__.py)
-- [`batch_context_auto.py`](C:/repos/comfy-vace-automation/batch_context_auto.py)
-- [`final_join_gate.py`](C:/repos/comfy-vace-automation/final_join_gate.py)
-- [`manifest_run.py`](C:/repos/comfy-vace-automation/manifest_run.py)
-- [`single_run_loop.py`](C:/repos/comfy-vace-automation/single_run_loop.py)
+- [`collector_nodes.py`](C:/repos/comfy-vace-automation/collector_nodes.py)
+- [`join_nodes.py`](C:/repos/comfy-vace-automation/join_nodes.py)
 
 ## Status
 
-This is a formalized copy of a working in-place custom node that was originally
-developed directly inside a local ComfyUI install. The node logic has been kept
-intact; cleanup here is limited to packaging the source into a clean repo.
+This repo now tracks the newer in-memory VACE join flow and supersedes the old
+manifest/file-based automation pack that previously lived here.
