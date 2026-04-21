@@ -77,3 +77,11 @@ Notes:
 
 This repo now tracks the newer in-memory VACE join flow and supersedes the old
 manifest/file-based automation pack that previously lived here.
+
+## Donations & Support
+
+If this saves you time, you can support the work here:
+
+- [Patreon](https://www.patreon.com/EnviralDesign)
+- [GitHub Sponsors](https://github.com/sponsors/EnviralDesign)
+- [PayPal](https://www.paypal.com/donate?hosted_button_id=RP8EJAHSDTZ86)
