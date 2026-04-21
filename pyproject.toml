@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "vace-automation"
+version = "0.1.0"
+description = "Lean ComfyUI custom nodes for in-memory VACE clip collection, seam prep, and iterative joins."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = []
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Operating System :: OS Independent",
+]
+
+[project.urls]
+Repository = "https://github.com/EnviralDesign/comfy-vace-automation"
+Documentation = "https://github.com/EnviralDesign/comfy-vace-automation#readme"
+"Bug Tracker" = "https://github.com/EnviralDesign/comfy-vace-automation/issues"
+
+[tool.comfy]
+PublisherId = "enviral-design"
+DisplayName = "VACE Automation"
