@@ -399,6 +399,9 @@ class VACEJoinPrep:
                 "replace_frames": ("INT", {"default": 8, "min": 0, "max": 4096}),
                 "new_frames": ("INT", {"default": 0, "min": 0, "max": 4096}),
                 "debug": ("BOOLEAN", {"default": False}),
+            },
+            "optional": {
+                "is_final_loop_pass": ("BOOLEAN", {"default": False}),
             }
         }
 
@@ -419,7 +422,7 @@ class VACEJoinPrep:
     CATEGORY = "video/VACE"
     DESCRIPTION = "Prepare a two-clip VACE seam from explicit video inputs without any loop or manifest logic."
 
-    def prepare(self, video_1, video_2, context_frames, replace_frames, new_frames, debug):
+    def prepare(self, video_1, video_2, context_frames, replace_frames, new_frames, debug, is_final_loop_pass=False):
         _validate_video_tensor("video_1", video_1)
         _validate_video_tensor("video_2", video_2)
 
@@ -435,16 +438,35 @@ class VACEJoinPrep:
             raise ValueError(f"Video dimensions must be divisible by 16, got {width}x{height}")
 
         trim = context_frames + replace_frames
-        required_frames = trim if replace_frames > 0 else context_frames
-        if video_1.shape[0] < required_frames:
-            raise ValueError(f"video_1 needs at least {required_frames} frames, got {video_1.shape[0]}")
-        if video_2.shape[0] < required_frames:
-            raise ValueError(f"video_2 needs at least {required_frames} frames, got {video_2.shape[0]}")
-
-        v1_context = _context_slice(video_1, context_frames, replace_frames, from_start=False)
-        v2_context = _context_slice(video_2, context_frames, replace_frames, from_start=True)
-
         filler_count = (replace_frames * 2) + new_frames + 1
+        control_length = (context_frames * 2) + filler_count
+        final_loop = bool(_first(is_final_loop_pass, False))
+
+        if final_loop:
+            if video_1.shape[0] <= control_length:
+                raise ValueError(
+                    f"video_1 needs more than {control_length} frames for final-loop replacement, "
+                    f"got {video_1.shape[0]}"
+                )
+            if video_2.shape[0] < context_frames:
+                raise ValueError(f"video_2 needs at least {context_frames} frames, got {video_2.shape[0]}")
+
+            v1_context = video_1[-control_length:-control_length + context_frames]
+            v2_context = video_2[:context_frames]
+            start_images = video_1[:-control_length]
+            end_images = video_2[trim:] if video_2.shape[0] > trim else video_2[:0]
+        else:
+            required_frames = trim if replace_frames > 0 else context_frames
+            if video_1.shape[0] < required_frames:
+                raise ValueError(f"video_1 needs at least {required_frames} frames, got {video_1.shape[0]}")
+            if video_2.shape[0] < required_frames:
+                raise ValueError(f"video_2 needs at least {required_frames} frames, got {video_2.shape[0]}")
+
+            v1_context = _context_slice(video_1, context_frames, replace_frames, from_start=False)
+            v2_context = _context_slice(video_2, context_frames, replace_frames, from_start=True)
+            start_images = _trim_outer(video_1, trim, from_start=False)
+            end_images = _trim_outer(video_2, trim, from_start=True)
+
         filler = torch.full(
             (filler_count, height, width, video_1.shape[3]),
             0.5,
@@ -460,8 +482,6 @@ class VACEJoinPrep:
         )
         mask[context_frames:context_frames + filler_count] = 1.0
 
-        start_images = _trim_outer(video_1, trim, from_start=False)
-        end_images = _trim_outer(video_2, trim, from_start=True)
         length = int(control_video.shape[0])
 
         if debug:
@@ -469,6 +489,7 @@ class VACEJoinPrep:
             print(f"[VACEJoinPrep] video_1 frames: {video_1.shape[0]}")
             print(f"[VACEJoinPrep] video_2 frames: {video_2.shape[0]}")
             print(f"[VACEJoinPrep] size: {width}x{height}")
+            print(f"[VACEJoinPrep] is_final_loop_pass: {final_loop}")
             print(f"[VACEJoinPrep] context_frames: {context_frames}")
             print(f"[VACEJoinPrep] replace_frames: {replace_frames}")
             print(f"[VACEJoinPrep] new_frames: {new_frames}")
@@ -588,19 +609,8 @@ class VACEJoinAssemble:
             )
 
         final_loop = bool(_first(is_final_loop_pass, False))
-        start = start_images
-        if final_loop:
-            trim_frames = max(0, int(context_frames) + int(replace_frames))
-            extra_frames = max(0, int(transition_images.shape[0]) - trim_frames)
-            if extra_frames > 0:
-                if start.shape[0] <= extra_frames:
-                    raise ValueError(
-                        f"Not enough start_images frames ({start.shape[0]}) to replace "
-                        f"{extra_frames} extra final-loop transition frames"
-                    )
-                start = start[:-extra_frames]
 
-        parts = [start, transition_images]
+        parts = [start_images, transition_images]
         if not final_loop:
             parts.append(end_images)
         output = torch.cat(parts, dim=0)
@@ -611,7 +621,6 @@ class VACEJoinAssemble:
             print(f"[VACEJoinAssemble] start_images frames: {start_images.shape[0]}")
             print(f"[VACEJoinAssemble] transition_images frames: {transition_images.shape[0]}")
             print(f"[VACEJoinAssemble] end_images frames: {end_images.shape[0]}")
-            print(f"[VACEJoinAssemble] adjusted start frames: {start.shape[0]}")
             print(f"[VACEJoinAssemble] output frames: {output.shape[0]}")
             print("[VACEJoinAssemble] === End ===")
 
