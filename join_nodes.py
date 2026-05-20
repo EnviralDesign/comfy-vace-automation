@@ -443,17 +443,22 @@ class VACEJoinPrep:
         final_loop = bool(_first(is_final_loop_pass, False))
 
         if final_loop:
-            if video_1.shape[0] <= control_length:
+            emitted_length = context_frames + replace_frames + new_frames + 1
+            if video_1.shape[0] <= emitted_length:
                 raise ValueError(
-                    f"video_1 needs more than {control_length} frames for final-loop replacement, "
+                    f"video_1 needs more than {emitted_length} frames for final-loop replacement, "
                     f"got {video_1.shape[0]}"
                 )
-            if video_2.shape[0] < context_frames:
-                raise ValueError(f"video_2 needs at least {context_frames} frames, got {video_2.shape[0]}")
+            required_right_context = trim if replace_frames > 0 else context_frames
+            if video_2.shape[0] < required_right_context:
+                raise ValueError(
+                    f"video_2 needs at least {required_right_context} frames for final-loop guidance, "
+                    f"got {video_2.shape[0]}"
+                )
 
-            v1_context = video_1[-control_length:-control_length + context_frames]
-            v2_context = video_2[:context_frames]
-            start_images = video_1[:-control_length]
+            v1_context = video_1[-emitted_length:-emitted_length + context_frames]
+            v2_context = _context_slice(video_2, context_frames, replace_frames, from_start=True)
+            start_images = video_1[:-emitted_length]
             end_images = video_2[trim:] if video_2.shape[0] > trim else video_2[:0]
         else:
             required_frames = trim if replace_frames > 0 else context_frames
@@ -610,7 +615,17 @@ class VACEJoinAssemble:
 
         final_loop = bool(_first(is_final_loop_pass, False))
 
-        parts = [start_images, transition_images]
+        transition = transition_images
+        if final_loop:
+            trailing_guidance = max(0, int(context_frames) + int(replace_frames))
+            if transition.shape[0] <= trailing_guidance:
+                raise ValueError(
+                    f"Final-loop transition has {transition.shape[0]} frames, "
+                    f"not enough to drop {trailing_guidance} trailing guidance frames"
+                )
+            transition = transition[:-trailing_guidance]
+
+        parts = [start_images, transition]
         if not final_loop:
             parts.append(end_images)
         output = torch.cat(parts, dim=0)
@@ -620,6 +635,7 @@ class VACEJoinAssemble:
             print(f"[VACEJoinAssemble] is_final_loop_pass: {final_loop}")
             print(f"[VACEJoinAssemble] start_images frames: {start_images.shape[0]}")
             print(f"[VACEJoinAssemble] transition_images frames: {transition_images.shape[0]}")
+            print(f"[VACEJoinAssemble] emitted transition frames: {transition.shape[0]}")
             print(f"[VACEJoinAssemble] end_images frames: {end_images.shape[0]}")
             print(f"[VACEJoinAssemble] output frames: {output.shape[0]}")
             print("[VACEJoinAssemble] === End ===")
