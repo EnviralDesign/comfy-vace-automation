@@ -138,6 +138,7 @@ class VACEClipLoopStart:
             "required": {
                 "clips": ("IMAGE", {"forceInput": True}),
                 "fps": ("FLOAT", {"forceInput": True}),
+                "final_loop": ("BOOLEAN", {"default": False}),
                 "debug": ("BOOLEAN", {"default": False}),
             },
             "optional": {
@@ -152,14 +153,24 @@ class VACEClipLoopStart:
             },
         }
 
-    RETURN_TYPES = ("FLOW_CONTROL", "INT", "INT", "FLOAT", "IMAGE", "IMAGE", "BOOLEAN", "INT")
-    RETURN_NAMES = ("flow", "next_index", "clip_count", "fps", "left_clip", "right_clip", "is_last", "iteration_index")
+    RETURN_TYPES = ("FLOW_CONTROL", "INT", "INT", "FLOAT", "IMAGE", "IMAGE", "BOOLEAN", "INT", "BOOLEAN")
+    RETURN_NAMES = (
+        "flow",
+        "next_index",
+        "clip_count",
+        "fps",
+        "left_clip",
+        "right_clip",
+        "is_last",
+        "iteration_index",
+        "is_final_loop_pass",
+    )
     FUNCTION = "loop_start"
     CATEGORY = "video/VACE"
     INPUT_IS_LIST = True
     DESCRIPTION = "Emit the current in-memory VACE clip pair while carrying an accumulated joined clip between iterations."
 
-    def loop_start(self, clips, fps, debug, next_index=None, accumulator_clip=None):
+    def loop_start(self, clips, fps, final_loop, debug, next_index=None, accumulator_clip=None):
         clip_list = _normalize_clip_list(clips)
         if len(clip_list) < 2:
             raise ValueError(f"Need at least 2 clips to loop, found {len(clip_list)}")
@@ -168,11 +179,14 @@ class VACEClipLoopStart:
         if fps_value <= 0:
             raise ValueError(f"FPS must be > 0, got {fps_value}")
 
+        final_loop_value = bool(_first(final_loop, False))
+        max_index = len(clip_list) if final_loop_value else len(clip_list) - 1
+
         next_index_value = int(_first(next_index, 1) or 1)
-        if next_index_value < 1 or next_index_value >= len(clip_list):
+        if next_index_value < 1 or next_index_value > max_index:
             raise ValueError(
                 f"next_index {next_index_value} out of range "
-                f"(valid: 1-{len(clip_list) - 1})"
+                f"(valid: 1-{max_index})"
             )
 
         accumulator = _first(accumulator_clip, None)
@@ -182,7 +196,8 @@ class VACEClipLoopStart:
         else:
             left_clip = clip_list[0]
 
-        right_clip = clip_list[next_index_value]
+        is_final_loop_pass = final_loop_value and next_index_value == len(clip_list)
+        right_clip = clip_list[0] if is_final_loop_pass else clip_list[next_index_value]
         _validate_video_tensor("left_clip", left_clip)
         _validate_video_tensor("right_clip", right_clip)
 
@@ -192,14 +207,16 @@ class VACEClipLoopStart:
                 f"right_clip={tuple(right_clip.shape[1:3])}"
             )
 
-        is_last = next_index_value == len(clip_list) - 1
+        is_last = next_index_value == max_index
         iteration_index = next_index_value - 1
         debug_value = bool(_first(debug, False))
         if debug_value:
             print("\n[VACEClipLoopStart] === Start ===")
             print(f"[VACEClipLoopStart] clip_count: {len(clip_list)}")
+            print(f"[VACEClipLoopStart] final_loop: {final_loop_value}")
             print(f"[VACEClipLoopStart] next_index: {next_index_value}")
             print(f"[VACEClipLoopStart] iteration_index: {iteration_index}")
+            print(f"[VACEClipLoopStart] is_final_loop_pass: {is_final_loop_pass}")
             print(f"[VACEClipLoopStart] fps: {fps_value}")
             print(f"[VACEClipLoopStart] accumulator: {'yes' if accumulator is not None else 'no'}")
             print(f"[VACEClipLoopStart] left_clip frames: {left_clip.shape[0]}")
@@ -207,7 +224,17 @@ class VACEClipLoopStart:
             print(f"[VACEClipLoopStart] is_last: {is_last}")
             print("[VACEClipLoopStart] === End ===")
 
-        return ("stub", next_index_value, len(clip_list), fps_value, left_clip, right_clip, is_last, iteration_index)
+        return (
+            "stub",
+            next_index_value,
+            len(clip_list),
+            fps_value,
+            left_clip,
+            right_clip,
+            is_last,
+            iteration_index,
+            is_final_loop_pass,
+        )
 
 
 class VACEClipLoopEnd:
@@ -523,6 +550,59 @@ class VACECrossfadeTransition:
         return (torch.cat(parts, dim=0),)
 
 
+class VACEJoinAssemble:
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "start_images": ("IMAGE",),
+                "transition_images": ("IMAGE",),
+                "end_images": ("IMAGE",),
+                "is_final_loop_pass": ("BOOLEAN", {"forceInput": True}),
+                "debug": ("BOOLEAN", {"default": False}),
+            }
+        }
+
+    RETURN_TYPES = ("IMAGE",)
+    RETURN_NAMES = ("images",)
+    FUNCTION = "assemble"
+    CATEGORY = "video/VACE"
+    DESCRIPTION = "Assemble a normal VACE seam, or omit right-side body frames on the final tail-to-head loop pass."
+
+    def assemble(self, start_images, transition_images, end_images, is_final_loop_pass, debug):
+        _validate_video_tensor("start_images", start_images)
+        _validate_video_tensor("transition_images", transition_images)
+        _validate_video_tensor("end_images", end_images)
+
+        if start_images.shape[1:] != transition_images.shape[1:]:
+            raise ValueError(
+                f"start_images and transition_images resolution mismatch: "
+                f"{tuple(start_images.shape[1:])} vs {tuple(transition_images.shape[1:])}"
+            )
+        if start_images.shape[1:] != end_images.shape[1:]:
+            raise ValueError(
+                f"start_images and end_images resolution mismatch: "
+                f"{tuple(start_images.shape[1:])} vs {tuple(end_images.shape[1:])}"
+            )
+
+        final_loop = bool(_first(is_final_loop_pass, False))
+        parts = [start_images, transition_images]
+        if not final_loop:
+            parts.append(end_images)
+        output = torch.cat(parts, dim=0)
+
+        if debug:
+            print("\n[VACEJoinAssemble] === Start ===")
+            print(f"[VACEJoinAssemble] is_final_loop_pass: {final_loop}")
+            print(f"[VACEJoinAssemble] start_images frames: {start_images.shape[0]}")
+            print(f"[VACEJoinAssemble] transition_images frames: {transition_images.shape[0]}")
+            print(f"[VACEJoinAssemble] end_images frames: {end_images.shape[0]}")
+            print(f"[VACEJoinAssemble] output frames: {output.shape[0]}")
+            print("[VACEJoinAssemble] === End ===")
+
+        return (output,)
+
+
 class VACEFinalLoopPrep:
     @classmethod
     def INPUT_TYPES(cls):
@@ -660,6 +740,7 @@ NODE_CLASS_MAPPINGS = {
     "VACESeedInt": VACESeedInt,
     "VACEJoinPrep": VACEJoinPrep,
     "VACECrossfadeTransition": VACECrossfadeTransition,
+    "VACEJoinAssemble": VACEJoinAssemble,
     "VACEFinalLoopPrep": VACEFinalLoopPrep,
     "VACEFinalLoopAssemble": VACEFinalLoopAssemble,
 }
@@ -671,6 +752,7 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "VACESeedInt": "VACE Seed Int",
     "VACEJoinPrep": "VACE Join Prep",
     "VACECrossfadeTransition": "VACE Crossfade Transition",
+    "VACEJoinAssemble": "VACE Join Assemble",
     "VACEFinalLoopPrep": "VACE Final Loop Prep",
     "VACEFinalLoopAssemble": "VACE Final Loop Assemble",
 }
