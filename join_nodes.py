@@ -559,6 +559,8 @@ class VACEJoinAssemble:
                 "transition_images": ("IMAGE",),
                 "end_images": ("IMAGE",),
                 "is_final_loop_pass": ("BOOLEAN", {"forceInput": True}),
+                "context_frames": ("INT", {"forceInput": True}),
+                "replace_frames": ("INT", {"forceInput": True}),
                 "debug": ("BOOLEAN", {"default": False}),
             }
         }
@@ -567,9 +569,9 @@ class VACEJoinAssemble:
     RETURN_NAMES = ("images",)
     FUNCTION = "assemble"
     CATEGORY = "video/VACE"
-    DESCRIPTION = "Assemble a normal VACE seam, or omit right-side body frames on the final tail-to-head loop pass."
+    DESCRIPTION = "Assemble a normal VACE seam, or replace tail frames with a tail-to-head seam on the final loop pass."
 
-    def assemble(self, start_images, transition_images, end_images, is_final_loop_pass, debug):
+    def assemble(self, start_images, transition_images, end_images, is_final_loop_pass, context_frames, replace_frames, debug):
         _validate_video_tensor("start_images", start_images)
         _validate_video_tensor("transition_images", transition_images)
         _validate_video_tensor("end_images", end_images)
@@ -586,7 +588,19 @@ class VACEJoinAssemble:
             )
 
         final_loop = bool(_first(is_final_loop_pass, False))
-        parts = [start_images, transition_images]
+        start = start_images
+        if final_loop:
+            trim_frames = max(0, int(context_frames) + int(replace_frames))
+            extra_frames = max(0, int(transition_images.shape[0]) - trim_frames)
+            if extra_frames > 0:
+                if start.shape[0] <= extra_frames:
+                    raise ValueError(
+                        f"Not enough start_images frames ({start.shape[0]}) to replace "
+                        f"{extra_frames} extra final-loop transition frames"
+                    )
+                start = start[:-extra_frames]
+
+        parts = [start, transition_images]
         if not final_loop:
             parts.append(end_images)
         output = torch.cat(parts, dim=0)
@@ -597,6 +611,7 @@ class VACEJoinAssemble:
             print(f"[VACEJoinAssemble] start_images frames: {start_images.shape[0]}")
             print(f"[VACEJoinAssemble] transition_images frames: {transition_images.shape[0]}")
             print(f"[VACEJoinAssemble] end_images frames: {end_images.shape[0]}")
+            print(f"[VACEJoinAssemble] adjusted start frames: {start.shape[0]}")
             print(f"[VACEJoinAssemble] output frames: {output.shape[0]}")
             print("[VACEJoinAssemble] === End ===")
 

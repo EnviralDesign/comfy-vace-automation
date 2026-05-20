@@ -37,7 +37,7 @@ preferred front-end for real use is `VACE Clip Collector`.
 - Optionally adds one final tail-to-head loop pass after the last normal seam
 - Carries the accumulated joined clip forward between iterations
 - Prepares native VACE control frames and masks for a single seam
-- Assembles normal seams and final loop seams without duplicating the first clip body
+- Assembles normal seams and final loop seams without duplicating or extending the first clip body
 - Prepares and assembles a final tail-to-head VACE loop pass for one clip
 - Provides a standalone seed `INT` node with native Comfy seed-widget behavior
 
