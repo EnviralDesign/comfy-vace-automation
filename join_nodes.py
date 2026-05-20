@@ -523,6 +523,136 @@ class VACECrossfadeTransition:
         return (torch.cat(parts, dim=0),)
 
 
+class VACEFinalLoopPrep:
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "video": ("IMAGE",),
+                "context_frames": ("INT", {"default": 8, "min": 1, "max": 4096}),
+                "replace_frames": ("INT", {"default": 8, "min": 0, "max": 4096}),
+                "new_frames": ("INT", {"default": 0, "min": 0, "max": 4096}),
+                "debug": ("BOOLEAN", {"default": False}),
+            }
+        }
+
+    RETURN_TYPES = ("IMAGE", "MASK", "IMAGE", "INT", "INT", "INT", "INT", "INT", "INT")
+    RETURN_NAMES = (
+        "control_video",
+        "control_mask",
+        "loop_body",
+        "width",
+        "height",
+        "length",
+        "context_frames",
+        "replace_frames",
+        "new_frames",
+    )
+    FUNCTION = "prepare"
+    CATEGORY = "video/VACE"
+    DESCRIPTION = "Prepare a VACE tail-to-head control window for rerendering a final clip into a loop."
+
+    def prepare(self, video, context_frames, replace_frames, new_frames, debug):
+        _validate_video_tensor("video", video)
+
+        height = int(video.shape[1])
+        width = int(video.shape[2])
+        if width % 16 != 0 or height % 16 != 0:
+            raise ValueError(f"Video dimensions must be divisible by 16, got {width}x{height}")
+
+        trim = context_frames + replace_frames
+        required_frames = trim if replace_frames > 0 else context_frames
+        if video.shape[0] < required_frames * 2 + 1:
+            raise ValueError(
+                f"video needs at least {required_frames * 2 + 1} frames for a final loop window, "
+                f"got {video.shape[0]}"
+            )
+
+        tail_context = _context_slice(video, context_frames, replace_frames, from_start=False)
+        head_context = _context_slice(video, context_frames, replace_frames, from_start=True)
+
+        filler_count = (replace_frames * 2) + new_frames + 1
+        filler = torch.full(
+            (filler_count, height, width, video.shape[3]),
+            0.5,
+            dtype=video.dtype,
+            device=video.device,
+        )
+
+        control_video = torch.cat((tail_context, filler, head_context), dim=0)
+        mask = torch.zeros(
+            (control_video.shape[0], height, width),
+            dtype=video.dtype,
+            device=video.device,
+        )
+        mask[context_frames:context_frames + filler_count] = 1.0
+
+        loop_body = video[trim:-trim]
+        length = int(control_video.shape[0])
+
+        if debug:
+            print("\n[VACEFinalLoopPrep] === Start ===")
+            print(f"[VACEFinalLoopPrep] video frames: {video.shape[0]}")
+            print(f"[VACEFinalLoopPrep] size: {width}x{height}")
+            print(f"[VACEFinalLoopPrep] context_frames: {context_frames}")
+            print(f"[VACEFinalLoopPrep] replace_frames: {replace_frames}")
+            print(f"[VACEFinalLoopPrep] new_frames: {new_frames}")
+            print(f"[VACEFinalLoopPrep] control length: {length}")
+            print(f"[VACEFinalLoopPrep] loop_body frames: {loop_body.shape[0]}")
+            print("[VACEFinalLoopPrep] === End ===")
+
+        return (
+            control_video,
+            mask,
+            loop_body,
+            width,
+            height,
+            length,
+            context_frames,
+            replace_frames,
+            new_frames,
+        )
+
+
+class VACEFinalLoopAssemble:
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "loop_body": ("IMAGE",),
+                "loop_transition": ("IMAGE",),
+                "debug": ("BOOLEAN", {"default": False}),
+            }
+        }
+
+    RETURN_TYPES = ("IMAGE",)
+    RETURN_NAMES = ("images",)
+    FUNCTION = "assemble"
+    CATEGORY = "video/VACE"
+    DESCRIPTION = "Append a VACE tail-to-head transition after the retained middle frames of a clip."
+
+    def assemble(self, loop_body, loop_transition, debug):
+        _validate_video_tensor("loop_body", loop_body)
+        _validate_video_tensor("loop_transition", loop_transition)
+
+        if loop_body.shape[1:] != loop_transition.shape[1:]:
+            raise ValueError(
+                f"loop_body and loop_transition resolution mismatch: "
+                f"loop_body={tuple(loop_body.shape[1:])}, loop_transition={tuple(loop_transition.shape[1:])}"
+            )
+
+        output = torch.cat((loop_body, loop_transition), dim=0)
+
+        if debug:
+            print("\n[VACEFinalLoopAssemble] === Start ===")
+            print(f"[VACEFinalLoopAssemble] loop_body frames: {loop_body.shape[0]}")
+            print(f"[VACEFinalLoopAssemble] loop_transition frames: {loop_transition.shape[0]}")
+            print(f"[VACEFinalLoopAssemble] output frames: {output.shape[0]}")
+            print("[VACEFinalLoopAssemble] === End ===")
+
+        return (output,)
+
+
 NODE_CLASS_MAPPINGS = {
     "VACEClipList3": VACEClipList3,
     "VACEClipLoopStart": VACEClipLoopStart,
@@ -530,6 +660,8 @@ NODE_CLASS_MAPPINGS = {
     "VACESeedInt": VACESeedInt,
     "VACEJoinPrep": VACEJoinPrep,
     "VACECrossfadeTransition": VACECrossfadeTransition,
+    "VACEFinalLoopPrep": VACEFinalLoopPrep,
+    "VACEFinalLoopAssemble": VACEFinalLoopAssemble,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
@@ -539,4 +671,6 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "VACESeedInt": "VACE Seed Int",
     "VACEJoinPrep": "VACE Join Prep",
     "VACECrossfadeTransition": "VACE Crossfade Transition",
+    "VACEFinalLoopPrep": "VACE Final Loop Prep",
+    "VACEFinalLoopAssemble": "VACE Final Loop Assemble",
 }

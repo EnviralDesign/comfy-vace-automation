@@ -22,6 +22,8 @@ where ComfyUI still needs a little orchestration help.
 - `VACE Seed Int`
 - `VACE Join Prep`
 - `VACE Crossfade Transition`
+- `VACE Final Loop Prep`
+- `VACE Final Loop Assemble`
 - `VACE Clip List (Up To 3)`
 
 `VACE Clip List (Up To 3)` is retained as a small prototype/helper node. The
@@ -33,6 +35,7 @@ preferred front-end for real use is `VACE Clip Collector`.
 - Loops across an ordered in-memory clip list without saving intermediate videos
 - Carries the accumulated joined clip forward between iterations
 - Prepares native VACE control frames and masks for a single seam
+- Prepares and assembles a final tail-to-head VACE loop pass for one clip
 - Provides a standalone seed `INT` node with native Comfy seed-widget behavior
 
 ## What this pack does not do
