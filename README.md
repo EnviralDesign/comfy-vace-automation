@@ -73,6 +73,9 @@ decode and returns both:
 - bridge-only images/video
 - full joined images/video
 
+Its `edge_blend_easing` setting controls the same edge-blend curve that the old
+crossfade node used when blending generated bridge edges back into source frames.
+
 ## What this pack does not do
 
 - It does not bundle `WanVideoNAG`

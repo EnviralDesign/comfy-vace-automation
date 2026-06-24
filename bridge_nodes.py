@@ -8,6 +8,7 @@ from comfy_api.latest import InputImpl, Types, io
 
 MAX_VISIBLE_BRIDGE_FRAMES = 80
 MAX_WAN_GENERATION_FRAMES = 81
+EDGE_BLEND_EASING = ["linear", "ease_in", "ease_out", "ease_in_out"]
 
 
 def _validate_image_batch(name, images):
@@ -49,18 +50,34 @@ def _coerce_fraction(value):
     return Fraction(round(float(value) * 1000), 1000)
 
 
-def _blend_edges(generated, bridge_source, left_edge_frames, right_edge_frames):
+def _apply_easing(values, easing):
+    if easing == "linear":
+        return values
+    if easing == "ease_in":
+        return values * values
+    if easing == "ease_out":
+        return 1.0 - (1.0 - values) * (1.0 - values)
+    if easing == "ease_in_out":
+        lower = 2.0 * values * values
+        upper = 1.0 - torch.pow(-2.0 * values + 2.0, 2) / 2.0
+        return torch.where(values < 0.5, lower, upper)
+    raise ValueError(f"Unsupported edge blend easing mode: {easing}")
+
+
+def _blend_edges(generated, bridge_source, left_edge_frames, right_edge_frames, easing):
     bridge = generated.clone()
     total = bridge.shape[0]
 
     left_count = min(int(left_edge_frames), total, bridge_source.shape[0])
     if left_count > 0:
         alpha = torch.linspace(0.0, 1.0, left_count, dtype=bridge.dtype, device=bridge.device).view(-1, 1, 1, 1)
+        alpha = _apply_easing(alpha, easing)
         bridge[:left_count] = bridge_source[:left_count] * (1.0 - alpha) + bridge[:left_count] * alpha
 
     right_count = min(int(right_edge_frames), total, bridge_source.shape[0])
     if right_count > 0:
         alpha = torch.linspace(0.0, 1.0, right_count, dtype=bridge.dtype, device=bridge.device).view(-1, 1, 1, 1)
+        alpha = _apply_easing(alpha, easing)
         source_tail = bridge_source[-right_count:].to(device=bridge.device, dtype=bridge.dtype)
         bridge_tail = bridge[-right_count:]
         bridge[-right_count:] = bridge_tail * (1.0 - alpha) + source_tail * alpha
@@ -257,6 +274,12 @@ class VACETwoVideoBridgeAssemble(io.ComfyNode):
                 io.Float.Input("fps", min=0.01, max=1000.0, force_input=True),
                 io.Int.Input("bit_depth", min=8, max=10, default=8, step=2, force_input=True),
                 io.Boolean.Input("debug", default=False),
+                io.Combo.Input(
+                    "edge_blend_easing",
+                    options=EDGE_BLEND_EASING,
+                    default="ease_in",
+                    tooltip="Easing curve for blending generated bridge edges back into original frames.",
+                ),
             ],
             outputs=[
                 io.Image.Output(display_name="bridge_images"),
@@ -281,6 +304,7 @@ class VACETwoVideoBridgeAssemble(io.ComfyNode):
         fps: float,
         bit_depth: int = 8,
         debug: bool = False,
+        edge_blend_easing: str = "ease_in",
     ) -> io.NodeOutput:
         _validate_image_batch("generated_bridge", generated_bridge)
         _validate_image_batch("left_kept", left_kept)
@@ -330,6 +354,7 @@ class VACETwoVideoBridgeAssemble(io.ComfyNode):
             bridge_source.to(device=bridge_images.device, dtype=bridge_images.dtype),
             left_edge_frames,
             right_edge_frames,
+            edge_blend_easing,
         )
         joined_images = torch.cat((left_kept, bridge_images, right_kept), dim=0)
 
@@ -350,6 +375,7 @@ class VACETwoVideoBridgeAssemble(io.ComfyNode):
             print(f"[VACETwoVideoBridgeAssemble] padding_frames: {pad_count}")
             print(f"[VACETwoVideoBridgeAssemble] bridge frames: {bridge_images.shape[0]}")
             print(f"[VACETwoVideoBridgeAssemble] joined frames: {joined_images.shape[0]}")
+            print(f"[VACETwoVideoBridgeAssemble] edge_blend_easing: {edge_blend_easing}")
             print(f"[VACETwoVideoBridgeAssemble] fps: {float(frame_rate)}")
             print("[VACETwoVideoBridgeAssemble] === End ===")
 
