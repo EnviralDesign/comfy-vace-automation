@@ -25,6 +25,8 @@ where ComfyUI still needs a little orchestration help.
 - `VACE Join Assemble`
 - `VACE Final Loop Prep`
 - `VACE Final Loop Assemble`
+- `VACE Two Video Bridge Prep`
+- `VACE Two Video Bridge Assemble`
 - `VACE Clip List (Up To 3)`
 
 `VACE Clip List (Up To 3)` is retained as a small prototype/helper node. The
@@ -39,7 +41,37 @@ preferred front-end for real use is `VACE Clip Collector`.
 - Prepares native VACE control frames and masks for a single seam
 - Assembles normal seams and final loop seams without duplicating or extending the first clip body
 - Prepares and assembles a final tail-to-head VACE loop pass for one clip
+- Prepares and assembles direct left/right video bridges for NLE-style workflows
 - Provides a standalone seed `INT` node with native Comfy seed-widget behavior
+
+## Direct two-video bridge
+
+For editor/NLE use, prefer the `VACE Two Video Bridge Prep` and
+`VACE Two Video Bridge Assemble` nodes.
+
+`VACE Two Video Bridge Prep` takes two native `VIDEO` inputs:
+
+- `left_video`: clip before the seam
+- `right_video`: clip after the seam
+- `left_replace_frames`: frames replaced from the end of the left video
+- `right_replace_frames`: frames replaced from the start of the right video
+- `edge_blend_frames`: outer bridge frames used as source anchors and final blend edges
+
+The visible bridge span is:
+
+```text
+left_replace_frames + right_replace_frames
+```
+
+The node hides Wan's `4n + 1` generation length requirement by inserting masked
+padding at the seam. For example, a 32-frame visible bridge becomes a 33-frame
+Wan control window, and the assemble node trims it back to 32 frames.
+
+`VACE Two Video Bridge Assemble` consumes the generated bridge frames after VACE
+decode and returns both:
+
+- bridge-only images/video
+- full joined images/video
 
 ## What this pack does not do
 
