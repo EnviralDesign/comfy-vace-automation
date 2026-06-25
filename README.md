@@ -25,6 +25,7 @@ where ComfyUI still needs a little orchestration help.
 - `VACE Join Assemble`
 - `VACE Final Loop Prep`
 - `VACE Final Loop Assemble`
+- `VACE Load Video From Path`
 - `VACE Two Video Bridge Prep`
 - `VACE Two Video Bridge Assemble`
 - `VACE Clip List (Up To 3)`
@@ -41,8 +42,24 @@ preferred front-end for real use is `VACE Clip Collector`.
 - Prepares native VACE control frames and masks for a single seam
 - Assembles normal seams and final loop seams without duplicating or extending the first clip body
 - Prepares and assembles a final tail-to-head VACE loop pass for one clip
+- Loads native Comfy `VIDEO` objects from absolute or project-relative paths
 - Prepares and assembles direct left/right video bridges for NLE-style workflows
 - Provides a standalone seed `INT` node with native Comfy seed-widget behavior
+
+## Loading videos from project paths
+
+Use `VACE Load Video From Path` when the video file lives outside ComfyUI's
+input directory.
+
+Inputs:
+
+- `path`: absolute video path, or a relative video path
+- `base_directory`: optional base directory for relative project paths
+
+If `path` is relative, the node checks `base_directory` first when provided,
+then ComfyUI's input directory, then the Comfy process working directory. The
+output is a native Comfy `VIDEO`, so it can connect directly to nodes such as
+`VACE Two Video Bridge Prep`.
 
 ## Direct two-video bridge
 
