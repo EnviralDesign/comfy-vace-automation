@@ -110,13 +110,16 @@ class VACETwoVideoBridgePrep(io.ComfyNode):
                     tooltip="Frames at each outer bridge edge used as original guidance and final blend anchors.",
                 ),
                 io.Boolean.Input("debug", default=False),
-                io.Float.Input(
-                    "fps",
-                    min=0.01,
-                    max=1000.0,
-                    optional=True,
-                    force_input=True,
-                    tooltip="Optional FPS override. Leave disconnected to derive and validate FPS from the input videos.",
+                io.MultiType.Input(
+                    io.Float.Input(
+                        "fps",
+                        min=0.01,
+                        max=1000.0,
+                        optional=True,
+                        force_input=True,
+                        tooltip="Optional FPS override. Leave disconnected to derive and validate FPS from the input videos.",
+                    ),
+                    [io.Int, io.Float],
                 ),
             ],
             outputs=[
