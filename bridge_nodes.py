@@ -110,6 +110,14 @@ class VACETwoVideoBridgePrep(io.ComfyNode):
                     tooltip="Frames at each outer bridge edge used as original guidance and final blend anchors.",
                 ),
                 io.Boolean.Input("debug", default=False),
+                io.Float.Input(
+                    "fps",
+                    min=0.01,
+                    max=1000.0,
+                    optional=True,
+                    force_input=True,
+                    tooltip="Optional FPS override. Leave disconnected to derive and validate FPS from the input videos.",
+                ),
             ],
             outputs=[
                 io.Image.Output(display_name="control_video"),
@@ -139,6 +147,7 @@ class VACETwoVideoBridgePrep(io.ComfyNode):
         right_replace_frames: int,
         edge_blend_frames: int,
         debug: bool = False,
+        fps: float | None = None,
     ) -> io.NodeOutput:
         left_components = left_video.get_components()
         right_components = right_video.get_components()
@@ -154,10 +163,17 @@ class VACETwoVideoBridgePrep(io.ComfyNode):
                 f"right={tuple(right_images.shape[1:])}"
             )
 
-        fps = float(left_components.frame_rate)
+        derived_fps = float(left_components.frame_rate)
         right_fps = float(right_components.frame_rate)
-        if abs(fps - right_fps) > 1e-6:
-            raise ValueError(f"Both videos must share FPS, left={fps} vs right={right_fps}")
+        fps_override = fps is not None
+        if fps_override:
+            fps = float(fps)
+            if fps <= 0:
+                raise ValueError("fps override must be greater than 0")
+        else:
+            fps = derived_fps
+            if abs(fps - right_fps) > 1e-6:
+                raise ValueError(f"Both videos must share FPS, left={fps} vs right={right_fps}")
 
         left_replace = int(left_replace_frames)
         right_replace = int(right_replace_frames)
@@ -222,6 +238,7 @@ class VACETwoVideoBridgePrep(io.ComfyNode):
             print(f"[VACETwoVideoBridgePrep] right frames: {right_images.shape[0]}")
             print(f"[VACETwoVideoBridgePrep] size: {width}x{height}")
             print(f"[VACETwoVideoBridgePrep] fps: {fps}")
+            print(f"[VACETwoVideoBridgePrep] fps_override: {fps_override}")
             print(f"[VACETwoVideoBridgePrep] left_replace_frames: {left_replace}")
             print(f"[VACETwoVideoBridgePrep] right_replace_frames: {right_replace}")
             print(f"[VACETwoVideoBridgePrep] bridge_frames visible: {bridge_frames}")

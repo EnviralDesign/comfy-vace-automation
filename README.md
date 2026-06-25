@@ -73,6 +73,7 @@ For editor/NLE use, prefer the `VACE Two Video Bridge Prep` and
 - `left_replace_frames`: frames replaced from the end of the left video
 - `right_replace_frames`: frames replaced from the start of the right video
 - `edge_blend_frames`: outer bridge frames used as source anchors and final blend edges
+- `fps`: optional force-input override; leave disconnected to derive and validate FPS from both videos
 
 The visible bridge span is:
 
