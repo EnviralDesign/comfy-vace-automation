@@ -74,6 +74,8 @@ For editor/NLE use, prefer the `VACE Two Video Bridge Prep` and
 - `right_replace_frames`: frames replaced from the start of the right video
 - `edge_blend_frames`: outer bridge frames used as source anchors and final blend edges
 - `fps`: optional int/float force-input override; leave disconnected to derive and validate FPS from both videos
+- `resize_strategy`: `passthrough` keeps the current matching-input-size behavior; `explicit_resize` stretches both videos to `width` and `height`
+- `width` / `height`: optional int force-input targets used only when `resize_strategy` is `explicit_resize`
 
 The visible bridge span is:
 

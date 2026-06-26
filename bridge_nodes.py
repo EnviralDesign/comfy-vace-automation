@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from fractions import Fraction
 
+import comfy.utils
 import torch
 from comfy_api.latest import InputImpl, Types, io
 
@@ -9,6 +10,7 @@ from comfy_api.latest import InputImpl, Types, io
 MAX_VISIBLE_BRIDGE_FRAMES = 80
 MAX_WAN_GENERATION_FRAMES = 81
 EDGE_BLEND_EASING = ["linear", "ease_in", "ease_out", "ease_in_out"]
+BRIDGE_RESIZE_STRATEGIES = ["passthrough", "explicit_resize"]
 
 
 def _validate_image_batch(name, images):
@@ -48,6 +50,38 @@ def _coerce_fraction(value):
     if isinstance(value, Fraction):
         return value
     return Fraction(round(float(value) * 1000), 1000)
+
+
+def _resolve_resize_strategy(value):
+    strategy = str(value or BRIDGE_RESIZE_STRATEGIES[0]).strip()
+    if strategy not in BRIDGE_RESIZE_STRATEGIES:
+        raise ValueError(f"resize_strategy must be one of: {', '.join(BRIDGE_RESIZE_STRATEGIES)}")
+    return strategy
+
+
+def _resolve_explicit_size(width, height):
+    if width is None or height is None:
+        raise ValueError("explicit_resize requires both width and height inputs")
+
+    width = int(width)
+    height = int(height)
+    if width <= 0 or height <= 0:
+        raise ValueError("width and height must be greater than 0")
+    if width % 16 != 0 or height % 16 != 0:
+        raise ValueError(f"Video dimensions must be divisible by 16, got {width}x{height}")
+    return width, height
+
+
+def _resize_image_batch(images, width, height):
+    if int(images.shape[1]) == height and int(images.shape[2]) == width:
+        return images
+    return comfy.utils.common_upscale(
+        images.movedim(-1, 1),
+        width,
+        height,
+        "bilinear",
+        "disabled",
+    ).movedim(1, -1)
 
 
 def _apply_easing(values, easing):
@@ -121,6 +155,34 @@ class VACETwoVideoBridgePrep(io.ComfyNode):
                     ),
                     [io.Int, io.Float],
                 ),
+                io.MultiType.Input(
+                    io.Combo.Input(
+                        "resize_strategy",
+                        options=BRIDGE_RESIZE_STRATEGIES,
+                        default="passthrough",
+                        tooltip=(
+                            "passthrough derives width/height from matching input videos; "
+                            "explicit_resize stretches both videos to the width/height inputs."
+                        ),
+                    ),
+                    [io.String, io.Combo],
+                ),
+                io.Int.Input(
+                    "width",
+                    min=16,
+                    step=16,
+                    optional=True,
+                    force_input=True,
+                    tooltip="Target width used only when resize_strategy is explicit_resize.",
+                ),
+                io.Int.Input(
+                    "height",
+                    min=16,
+                    step=16,
+                    optional=True,
+                    force_input=True,
+                    tooltip="Target height used only when resize_strategy is explicit_resize.",
+                ),
             ],
             outputs=[
                 io.Image.Output(display_name="control_video"),
@@ -142,6 +204,30 @@ class VACETwoVideoBridgePrep(io.ComfyNode):
         )
 
     @classmethod
+    def validate_inputs(cls, resize_strategy="passthrough", width=None, height=None, fps=None, **kwargs):
+        strategy = None
+        if resize_strategy is not None:
+            try:
+                strategy = _resolve_resize_strategy(resize_strategy)
+            except Exception as err:
+                return str(err)
+
+        if strategy == "explicit_resize" and width is not None and height is not None:
+            try:
+                _resolve_explicit_size(width, height)
+            except Exception as err:
+                return str(err)
+
+        if fps is not None:
+            try:
+                if float(fps) <= 0:
+                    return "fps override must be greater than 0"
+            except Exception as err:
+                return str(err)
+
+        return True
+
+    @classmethod
     def execute(
         cls,
         left_video,
@@ -151,6 +237,9 @@ class VACETwoVideoBridgePrep(io.ComfyNode):
         edge_blend_frames: int,
         debug: bool = False,
         fps: float | None = None,
+        resize_strategy: str = "passthrough",
+        width: int | None = None,
+        height: int | None = None,
     ) -> io.NodeOutput:
         left_components = left_video.get_components()
         right_components = right_video.get_components()
@@ -160,11 +249,27 @@ class VACETwoVideoBridgePrep(io.ComfyNode):
         _validate_image_batch("left_video.images", left_images)
         _validate_image_batch("right_video.images", right_images)
 
-        if left_images.shape[1:] != right_images.shape[1:]:
-            raise ValueError(
-                f"Video resolution/channels mismatch: left={tuple(left_images.shape[1:])}, "
-                f"right={tuple(right_images.shape[1:])}"
-            )
+        resize_strategy = _resolve_resize_strategy(resize_strategy)
+        left_input_size = (int(left_images.shape[2]), int(left_images.shape[1]))
+        right_input_size = (int(right_images.shape[2]), int(right_images.shape[1]))
+
+        if resize_strategy == "explicit_resize":
+            width, height = _resolve_explicit_size(width, height)
+            if left_images.shape[-1] != right_images.shape[-1]:
+                raise ValueError(
+                    f"Video channel mismatch: left={left_images.shape[-1]}, "
+                    f"right={right_images.shape[-1]}"
+                )
+            left_images = _resize_image_batch(left_images, width, height)
+            right_images = _resize_image_batch(right_images, width, height)
+        else:
+            if left_images.shape[1:] != right_images.shape[1:]:
+                raise ValueError(
+                    f"Video resolution/channels mismatch: left={tuple(left_images.shape[1:])}, "
+                    f"right={tuple(right_images.shape[1:])}"
+                )
+            height = int(left_images.shape[1])
+            width = int(left_images.shape[2])
 
         derived_fps = float(left_components.frame_rate)
         right_fps = float(right_components.frame_rate)
@@ -192,8 +297,6 @@ class VACETwoVideoBridgePrep(io.ComfyNode):
         padding_frames = wan_length - bridge_frames
         padding_start = left_replace
 
-        height = int(left_images.shape[1])
-        width = int(left_images.shape[2])
         if width % 16 != 0 or height % 16 != 0:
             raise ValueError(f"Video dimensions must be divisible by 16, got {width}x{height}")
 
@@ -239,6 +342,9 @@ class VACETwoVideoBridgePrep(io.ComfyNode):
             print("\n[VACETwoVideoBridgePrep] === Start ===")
             print(f"[VACETwoVideoBridgePrep] left frames: {left_images.shape[0]}")
             print(f"[VACETwoVideoBridgePrep] right frames: {right_images.shape[0]}")
+            print(f"[VACETwoVideoBridgePrep] left input size: {left_input_size[0]}x{left_input_size[1]}")
+            print(f"[VACETwoVideoBridgePrep] right input size: {right_input_size[0]}x{right_input_size[1]}")
+            print(f"[VACETwoVideoBridgePrep] resize_strategy: {resize_strategy}")
             print(f"[VACETwoVideoBridgePrep] size: {width}x{height}")
             print(f"[VACETwoVideoBridgePrep] fps: {fps}")
             print(f"[VACETwoVideoBridgePrep] fps_override: {fps_override}")
