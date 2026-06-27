@@ -76,6 +76,7 @@ For editor/NLE use, prefer the `VACE Two Video Bridge Prep` and
 - `fps`: optional int/float force-input override; leave disconnected to derive and validate FPS from both videos
 - `resize_strategy`: `passthrough` keeps the current matching-input-size behavior; `explicit_resize` stretches both videos to `width` and `height`
 - `width` / `height`: optional int force-input targets used only when `resize_strategy` is `explicit_resize`
+- `color_reference_frame`: one-frame output for color matching; uses the last non-gray left control anchor, falling back to the left span/input frame
 
 The visible bridge span is:
 

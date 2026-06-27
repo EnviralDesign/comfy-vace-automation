@@ -84,6 +84,16 @@ def _resize_image_batch(images, width, height):
     ).movedim(1, -1)
 
 
+def _left_color_reference_frame(left_images, left_span, left_edge_frames):
+    if left_edge_frames > 0:
+        return left_span[left_edge_frames - 1:left_edge_frames]
+    if left_span.shape[0] > 0:
+        return left_span[-1:]
+    if left_images.shape[0] > 0:
+        return left_images[-1:]
+    raise ValueError("left_video must contain at least one frame")
+
+
 def _apply_easing(values, easing):
     if easing == "linear":
         return values
@@ -200,6 +210,7 @@ class VACETwoVideoBridgePrep(io.ComfyNode):
                 io.Int.Output(display_name="right_edge_frames"),
                 io.Float.Output(display_name="fps"),
                 io.Int.Output(display_name="bit_depth"),
+                io.Image.Output(display_name="color_reference_frame"),
             ],
         )
 
@@ -327,6 +338,7 @@ class VACETwoVideoBridgePrep(io.ComfyNode):
         edge_frames = max(0, int(edge_blend_frames))
         left_edge_frames = min(edge_frames, left_replace)
         right_edge_frames = min(edge_frames, right_replace)
+        color_reference_frame = _left_color_reference_frame(left_images, left_span, left_edge_frames)
 
         if left_edge_frames > 0:
             control_video[:left_edge_frames] = left_span[:left_edge_frames]
@@ -356,6 +368,7 @@ class VACETwoVideoBridgePrep(io.ComfyNode):
             print(f"[VACETwoVideoBridgePrep] padding_frames: {padding_frames}")
             print(f"[VACETwoVideoBridgePrep] left_edge_frames: {left_edge_frames}")
             print(f"[VACETwoVideoBridgePrep] right_edge_frames: {right_edge_frames}")
+            print(f"[VACETwoVideoBridgePrep] color_reference_frame shape: {tuple(color_reference_frame.shape)}")
             print("[VACETwoVideoBridgePrep] === End ===")
 
         return io.NodeOutput(
@@ -374,6 +387,7 @@ class VACETwoVideoBridgePrep(io.ComfyNode):
             right_edge_frames,
             fps,
             bit_depth,
+            color_reference_frame,
         )
 
 
